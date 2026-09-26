@@ -240,17 +240,12 @@ app.post('/mcp', async (req, res) => {
       });
     }
 
-    /* validate MCP token from Authorization header */
+    /* validate MCP token */
     const bearerToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
     if (!bearerToken) {
       return res.json({
         jsonrpc: '2.0', id,
-        result: {
-          content: [{
-            type: 'text',
-            text: '❌ No MCP token provided. Open DevTwin → Profile → Copy MCP Config for Bob.',
-          }],
-        },
+        result: { content: [{ type: 'text', text: '❌ No MCP token provided. Open DevTwin → Profile → Copy MCP Config for Bob.' }] },
       });
     }
 
@@ -263,123 +258,100 @@ app.post('/mcp', async (req, res) => {
     if (userErr || !user) {
       return res.json({
         jsonrpc: '2.0', id,
-        result: {
-          content: [{
-            type: 'text',
-            text: '❌ Invalid or expired MCP token. Regenerate it in DevTwin → Profile.',
-          }],
-        },
-      });
-    }
-
-    const args   = body.params?.arguments || {};
-    const limit  = Math.min(Number(args.limit) || 5, 20);
-    const filter = args.type || 'all';
-
-    let query = supabase
-      .from('snapshots')
-      .select('id,file,type,description,prompt,code,ts,ts_ms')
-      .eq('user_id', user.id)
-      .order('ts_ms', { ascending: false })
-      .limit(limit);
-
-    if (filter !== 'all') query = query.eq('type', filter);
-
-    const { data: snaps } = await query;
-
-    if (!snaps || snaps.length === 0) {
-      return res.json({
-        jsonrpc: '2.0', id,
-        result: {
-          content: [{
-            type: 'text',
-            text: `👋 Hi ${user.name}! No DevTwin snapshots found yet.\nGo to DevTwin → Prompt Studio, generate a prompt, and click Snapshot.`,
-          }],
-        },
-      });
-    }
-
-    const text = [
-      `📸 DevTwin Snapshots for ${user.name} (${user.email})`,
-      `Total: ${snaps.length} snapshot(s) shown\n`,
-      ...snaps.map((s, i) =>
-        `━━━ #${i + 1} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `📁 File: ${s.file}\n` +
-        `🕐 Time: ${s.ts}\n` +
-        `${s.type === 'red' ? '🔴 Planning' : '🟢 Execution'}\n` +
-        `📝 ${s.description}\n` +
-        (s.prompt ? `\n🤖 Prompt:\n${s.prompt}` : `\n💾 Code:\n${(s.code || '').slice(0, 600)}`)
-      ),
-    ].join('\n');
-
-    return res.json({
-      jsonrpc: '2.0', id,
-      result: { content: [{ type: 'text', text }] },
-    });
-  }
-
-  /* ── save_snapshot ── */
-  if (body?.method === 'tools/call' && body.params?.name === 'save_snapshot') {
-    const bearerToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-    if (!bearerToken) {
-      return res.json({
-        jsonrpc: '2.0', id,
-        result: { content: [{ type: 'text', text: '❌ No MCP token provided.' }] },
-      });
-    }
-
-    const { data: user, error: userErr } = await supabase
-      .from('users')
-      .select('id,name')
-      .eq('bob_mcp_token', bearerToken)
-      .single();
-
-    if (userErr || !user) {
-      return res.json({
-        jsonrpc: '2.0', id,
         result: { content: [{ type: 'text', text: '❌ Invalid or expired MCP token. Regenerate it in DevTwin → Profile.' }] },
       });
     }
 
-    const args = body.params?.arguments || {};
-    const { file, code, prompt, description, type } = args;
+    /* ── get_my_snapshots ── */
+    if (toolName === 'get_my_snapshots') {
+      const args   = body.params?.arguments || {};
+      const limit  = Math.min(Number(args.limit) || 5, 20);
+      const filter = args.type || 'all';
 
-    if (!file || !code) {
+      let query = supabase
+        .from('snapshots')
+        .select('id,file,type,description,prompt,code,ts,ts_ms')
+        .eq('user_id', user.id)
+        .order('ts_ms', { ascending: false })
+        .limit(limit);
+
+      if (filter !== 'all') query = query.eq('type', filter);
+
+      const { data: snaps } = await query;
+
+      if (!snaps || snaps.length === 0) {
+        return res.json({
+          jsonrpc: '2.0', id,
+          result: {
+            content: [{
+              type: 'text',
+              text: `👋 Hi ${user.name}! No DevTwin snapshots found yet.\nGo to DevTwin → Prompt Studio, generate a prompt, and click Snapshot.`,
+            }],
+          },
+        });
+      }
+
+      const text = [
+        `📸 DevTwin Snapshots for ${user.name} (${user.email})`,
+        `Total: ${snaps.length} snapshot(s) shown\n`,
+        ...snaps.map((s, i) =>
+          `━━━ #${i + 1} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `📁 File: ${s.file}\n` +
+          `🕐 Time: ${s.ts}\n` +
+          `${s.type === 'red' ? '🔴 Planning' : '🟢 Execution'}\n` +
+          `📝 ${s.description}\n` +
+          (s.prompt ? `\n🤖 Prompt:\n${s.prompt}` : `\n💾 Code:\n${(s.code || '').slice(0, 600)}`)
+        ),
+      ].join('\n');
+
       return res.json({
         jsonrpc: '2.0', id,
-        result: { content: [{ type: 'text', text: '❌ file and code are required.' }] },
+        result: { content: [{ type: 'text', text }] },
       });
     }
 
-    const tsMs = Date.now();
-    const ts   = new Date(tsMs).toLocaleString('en-GB', {
-      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-    });
-    const snapId = 'snap-' + randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+    /* ── save_snapshot ── */
+    if (toolName === 'save_snapshot') {
+      const args = body.params?.arguments || {};
+      const { file, code, prompt, description, type } = args;
 
-    const { error: insertErr } = await supabase.from('snapshots').insert({
-      id:          snapId,
-      user_id:     user.id,
-      file:        file,
-      type:        type || 'green',
-      description: description || `Bob: updated ${file}`,
-      code:        code,
-      prompt:      prompt || '',
-      ts,
-      ts_ms:       tsMs,
-    });
+      if (!file || !code) {
+        return res.json({
+          jsonrpc: '2.0', id,
+          result: { content: [{ type: 'text', text: '❌ file and code are required.' }] },
+        });
+      }
 
-    if (insertErr) {
+      const tsMs = Date.now();
+      const ts   = new Date(tsMs).toLocaleString('en-GB', {
+        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+      const snapId = 'snap-' + randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+
+      const { error: insertErr } = await supabase.from('snapshots').insert({
+        id:          snapId,
+        user_id:     user.id,
+        file:        file,
+        type:        type || 'green',
+        description: description || `Bob: updated ${file}`,
+        code:        code,
+        prompt:      prompt || '',
+        ts,
+        ts_ms:       tsMs,
+      });
+
+      if (insertErr) {
+        return res.json({
+          jsonrpc: '2.0', id,
+          result: { content: [{ type: 'text', text: `❌ Failed to save snapshot: ${insertErr.message}` }] },
+        });
+      }
+
       return res.json({
         jsonrpc: '2.0', id,
-        result: { content: [{ type: 'text', text: `❌ Failed to save snapshot: ${insertErr.message}` }] },
+        result: { content: [{ type: 'text', text: `✅ Snapshot saved!\n📁 File: ${file}\n🆔 ID: ${snapId}\n🕐 Time: ${ts}` }] },
       });
     }
-
-    return res.json({
-      jsonrpc: '2.0', id,
-      result: { content: [{ type: 'text', text: `✅ Snapshot saved!\n📁 File: ${file}\n🆔 ID: ${snapId}\n🕐 Time: ${ts}` }] },
-    });
   }
 
   /* ── fallback ── */
@@ -392,3 +364,4 @@ app.get('/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOStri
 app.listen(PORT, () => {
   console.log(`DevTwin backend running on port ${PORT}`);
 });
+ 
